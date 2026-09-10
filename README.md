@@ -1,56 +1,16 @@
-# Wine Quality Prediction
+Ended up locking in Logistic Regression as the final model after running GridSearchCV, with custom class weights after way too much trial and error.
 
-Random Forest classifier on the UCI Red Wine dataset — with a documented investigation 
-into class imbalance, outlier-removal bias, and the accuracy-vs-recall tradeoff.
+Basically tested six models—LogReg, SVM, MLP, Gradient Boosting, RF, and a basic Decision Tree. Ran full cross-val and significance testing on all of them. Decision Tree was clearly the worst of the bunch (p < 0.05 across the board), but the other four were basically dead even on raw accuracy. Statistically, there was no real difference between LogReg, RF, MLP, and SVC.
 
-## What this project covers
+The confusion matrix was what actually broke the tie, not accuracy. SVC and default RF both had great looking ~86-88% accuracy scores, but when you look under the hood they were basically cheating. Since "average" wine makes up like 80% of the dataset, the models just got lazy and predicted average almost every single time. High score, but zero poor wines detected—so pretty much useless in practice.
 
-This isn't just "train a model, report accuracy." The real value of this project 
-is in the investigation:
+A few things I tried to fix it:
 
-- Compared six algorithms (Logistic Regression, Decision Tree, Random Forest, 
-  Gradient Boosting, SVM, and a neural network) using cross-validation and 
-  paired t-tests, not just a single train/test split.
-- Found that outlier removal (IsolationForest) was disproportionately stripping 
-  out rare quality categories — fixed by running outlier detection per-category 
-  instead of across the whole dataset.
-- Discovered that several models with the highest raw accuracy (~86-88%) were 
-  achieving that by never predicting the "poor" quality class at all — just 
-  defaulting to the majority class. Diagnosed this with confusion matrices, 
-  not just accuracy.
-- Tested `class_weight` rebalancing and SMOTE to address this, and documented 
-  the real tradeoff: aggressive rebalancing fixed minority-class detection but 
-  tanked overall accuracy; a tuned middle ground (custom class weights + 
-  GridSearchCV) gave the best practical balance.
-- Verified the final model's feature importances against real winemaking 
-  chemistry (alcohol, volatile acidity, sulphates) rather than just trusting 
-  the numbers.
+* Outlier removal backfired at first. IsolationForest was aggressively stripping out poor and great wines just because they're rare by nature. Ended up fixing that by running outlier filtering per-category instead of dumping the whole dataset into it at once.
+* Slapping `class_weight='balanced'` on fixed the poor wine detection (caught like 8/10), but completely tanked overall accuracy down to ~61%. It got way too paranoid and started guessing poor/great everywhere, messing up a ton of normal average wines.
+* Tried SMOTE next, but it gave pretty much the same result as class weighting. Stacking them together didn't help either—mostly just redundant.
+* Settled on custom class weights (~3-4x on poor, 2x on great). It's a compromise, but it keeps overall accuracy around ~70% while still actually flagging poor wines instead of pretending they dont exist.
 
-## Final model
+Feature importance (and LogReg coefficients, checked those too) both pointed to alcohol, volatile acidity, and sulphates as the big three. Makes complete sense chemically—alcohol tracks ripeness/body, volatile acidity is that sour vinegar defect, and sulphates act as preservatives.
 
-Random Forest, tuned with `GridSearchCV`, custom class weighting for the 
-minority "poor quality" class. ~86% accuracy on held-out test data, with a 
-documented, honest limitation: the dataset only contains 59 poor-quality wine 
-samples, which caps how well any model can learn that class regardless of 
-technique.
-
-## Pipeline
-
-1. Load and explore the data (distributions, correlations, feature relationships)
-2. Bin `quality` into three categories: poor (<5), average (5–6), great (≥7)
-3. Remove outliers per-category with `IsolationForest` (to avoid disproportionately 
-   removing rare classes)
-4. Split into train/test, scale features where needed
-5. Compare six classifiers with cross-validation + significance testing
-6. Diagnose misleading high-accuracy results via confusion matrices
-7. Address class imbalance with weighted classes / SMOTE
-8. Tune the final model with `GridSearchCV`
-9. Evaluate on held-out test data and inspect feature importances
-
-## Tech
-
-Python, pandas, numpy, scikit-learn, imbalanced-learn, seaborn, matplotlib
-
-## Dataset
-
-[UCI Wine Quality Dataset](https://archive.ics.uci.edu/dataset/186/wine+quality) (red wine)
+Real talk on limitations though: there are only 59 poor-quality wines in the entire dataset. Every single rebalancing trick—SMOTE, manual weights, combos—hit the exact same wall at around 70-80% recall on the poor class. At this point it’s pretty clearly a data scarcity problem, not a modeling issue. Swapping algorithms wont fix it; we just need more bad wine samples.
